@@ -27,4 +27,8 @@ public class NetworkResponse<T> {
     public void setViaRedis(boolean viaRedis) {
         this.viaRedis = viaRedis;
     }
+
+    public RateLimitedProcessor.Action getRlpHint() {
+        return viaRedis ? RateLimitedProcessor.Action.SKIP_DELAY : RateLimitedProcessor.Action.WAIT_AND_CONTINUE;
+    }
 }
