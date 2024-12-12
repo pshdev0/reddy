@@ -65,10 +65,10 @@ public class Network {
                 "-d", requestBody
         );
 
-        var redisHash = createRedisKey("POST", url, requestBody);
+        var redisKey = createRedisKey("POST", url, requestBody);
         var redis = getRedis();
-        if(redis.exists(redisHash)) {
-            return new NetworkResponse<>(redis.get(redisHash), true);
+        if(redis.exists(redisKey)) {
+            return new NetworkResponse<>(redis.get(redisKey), true, redisKey);
         }
 
         try {
@@ -95,7 +95,7 @@ public class Network {
                 }
 
                 var rtnString = response.toString();
-                redis.set(redisHash, rtnString);
+                redis.set(redisKey, rtnString);
                 return new NetworkResponse<>(rtnString, false);
             }
 
@@ -110,10 +110,10 @@ public class Network {
         // Use ProcessBuilder to run curl with arguments
         List<String> curlCommand = List.of("curl", "-X", "GET", url, "-H", "Content-Type: application/json");
 
-        var redisHash = createRedisKey("GET", url);
+        var redisKey = createRedisKey("GET", url);
         var redis = getRedis();
-        if (redis.exists(redisHash)) {
-            return new NetworkResponse<>(redis.get(redisHash), true);
+        if (redis.exists(redisKey)) {
+            return new NetworkResponse<>(redis.get(redisKey), true, redisKey);
         }
 
         try {
@@ -140,7 +140,7 @@ public class Network {
                 }
 
                 var rtnString = response.toString();
-                redis.set(redisHash, rtnString);
+                redis.set(redisKey, rtnString);
                 return new NetworkResponse<>(rtnString, false);
             }
 
