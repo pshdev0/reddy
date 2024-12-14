@@ -1,5 +1,8 @@
 package com.pshdev0.reddy;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bouncycastle.jcajce.provider.digest.Keccak;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import redis.clients.jedis.Jedis;
@@ -11,10 +14,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.Security;
 import java.util.List;
+import java.util.function.Supplier;
 
 public class Network {
     private static Jedis jedis;
     private static String redisKeyPrefix;
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     private Network() { }
 
@@ -32,6 +37,27 @@ public class Network {
     public static String createRedisKey(String method, String ... stringsToJoinAndHash) {
         var id = String.join(":", stringsToJoinAndHash);
         return redisKeyPrefix + ":" + method + ":" + getKeccak256Hash(id);
+    }
+
+    public static <T> NetworkResponse<T> getCachedOrCompute(Supplier<T> func, TypeReference<T> typeRef, String redisMethodName, String ... redisStringsToMakeHash) {
+        var key = createRedisKey(redisMethodName, redisStringsToMakeHash);
+        var redis = getRedis();
+        if(redis.exists(key)) {
+            try {
+                T data = objectMapper.readValue(redis.get(key), typeRef);
+                return new NetworkResponse<>(data, key);
+            } catch (JsonProcessingException e) {
+                System.out.println("redis read failed, computing instead");
+            }
+        }
+
+        var value = func.get();
+        try {
+            redis.set(key, objectMapper.writeValueAsString(value));
+        } catch (JsonProcessingException e) {
+            System.out.println("could not set redis key/value");
+        }
+        return new NetworkResponse<>(func.get());
     }
 
     public static String getKeccak256Hash(String signature) {
@@ -65,10 +91,10 @@ public class Network {
                 "-d", requestBody
         );
 
-        var redisKey = createRedisKey("POST", url, requestBody);
+        var key = createRedisKey("POST", url, requestBody);
         var redis = getRedis();
-        if(redis.exists(redisKey)) {
-            return new NetworkResponse<>(redis.get(redisKey), true, redisKey);
+        if(redis.exists(key)) {
+            return new NetworkResponse<>(redis.get(key), key);
         }
 
         try {
@@ -95,8 +121,8 @@ public class Network {
                 }
 
                 var rtnString = response.toString();
-                redis.set(redisKey, rtnString);
-                return new NetworkResponse<>(rtnString, false);
+                redis.set(key, rtnString);
+                return new NetworkResponse<>(rtnString, key);
             }
 
         } catch (IOException | InterruptedException e) {
@@ -110,10 +136,10 @@ public class Network {
         // Use ProcessBuilder to run curl with arguments
         List<String> curlCommand = List.of("curl", "-X", "GET", url, "-H", "Content-Type: application/json");
 
-        var redisKey = createRedisKey("GET", url);
+        var key = createRedisKey("GET", url);
         var redis = getRedis();
-        if (redis.exists(redisKey)) {
-            return new NetworkResponse<>(redis.get(redisKey), true, redisKey);
+        if (redis.exists(key)) {
+            return new NetworkResponse<>(redis.get(key), key);
         }
 
         try {
@@ -140,13 +166,17 @@ public class Network {
                 }
 
                 var rtnString = response.toString();
-                redis.set(redisKey, rtnString);
-                return new NetworkResponse<>(rtnString, false);
+                redis.set(key, rtnString);
+                return new NetworkResponse<>(rtnString, key);
             }
 
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
         return new NetworkResponse<>();
+    }
+
+    public static ObjectMapper getObjectMapper() {
+        return objectMapper;
     }
 }

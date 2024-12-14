@@ -13,7 +13,10 @@ import java.util.function.Function;
 public class RateLimitedProcessor<T> {
 
     public enum Action {
-        WAIT_AND_CONTINUE, STOP, SKIP_DELAY
+        WAIT_AND_CONTINUE,
+        STOP,
+        SKIP_DELAY,
+        SKIP_THIS_TRACK_AND_MOVE_TO_NEXT
     }
 
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
@@ -21,6 +24,7 @@ public class RateLimitedProcessor<T> {
     private final long delayMillis;
     private final RateLimitedProcessorData<T> data;
     private int currentTrack = -1;
+    private double initialTotalSize;
 
     public RateLimitedProcessor(long delayMillisAfterEachTaskCompleted) {
         this(delayMillisAfterEachTaskCompleted, () -> null);
@@ -36,9 +40,10 @@ public class RateLimitedProcessor<T> {
         return taskQueueList.get(currentTrack).size();
     }
 
-    public void addQueue() {
+    public RateLimitedProcessor<T> addQueue() {
         taskQueueList.add(new ConcurrentLinkedQueue<>());
         currentTrack++;
+        return this;
     }
 
     public RateLimitedProcessor<T> add(Function<RateLimitedProcessorData<T>, Action> func) {
@@ -46,10 +51,16 @@ public class RateLimitedProcessor<T> {
         return this;
     }
 
+    public RateLimitedProcessorData<T> getData() {
+        return data;
+    }
+
     public void perform() {
         AtomicBoolean stop = new AtomicBoolean(false);
         int total = taskQueueList.get(currentTrack).size();
         System.out.println("Starting to perform tasks. Initial queue size: " + total);
+
+        initialTotalSize = taskQueueList.stream().mapToDouble(Queue::size).sum();
 
         currentTrack = 0;
 
@@ -59,8 +70,7 @@ public class RateLimitedProcessor<T> {
         Runnable taskRunner = new Runnable() {
             @Override
             public void run() {
-                Function<RateLimitedProcessorData<T>, RateLimitedProcessor.Action> task = null;
-                task = taskQueueList.get(currentTrack).poll();
+                var task = taskQueueList.get(currentTrack).poll();
                 if (task == null && currentTrack < taskQueueList.size() - 1) {
                     // move on to next queue track
                     currentTrack++;
@@ -78,7 +88,10 @@ public class RateLimitedProcessor<T> {
                             stop.set(true);
                         } else if (result.equals(Action.SKIP_DELAY)) {
                             scheduler.schedule(this, 0, TimeUnit.MILLISECONDS);
-                        } else {
+                        } else if (result.equals(Action.SKIP_THIS_TRACK_AND_MOVE_TO_NEXT)) {
+                            taskQueueList.get(currentTrack).clear();
+                        }
+                        else {
                             scheduler.schedule(this, delayMillis, TimeUnit.MILLISECONDS);
                         }
                     } catch (Exception e) {
@@ -93,6 +106,11 @@ public class RateLimitedProcessor<T> {
         };
 
         scheduler.schedule(taskRunner, 0, TimeUnit.MILLISECONDS);
+    }
+
+    public String getProgressSummary() {
+        double pc = taskQueueList.stream().mapToInt(Queue::size).sum() / initialTotalSize * 100;
+        return String.format("%.2f%%", pc);
     }
 
     private void shutDown() {

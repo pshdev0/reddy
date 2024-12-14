@@ -1,20 +1,20 @@
 package com.pshdev0.reddy;
 
+import org.apache.commons.lang3.StringUtils;
+
 public class NetworkResponse<T> {
     private T value;
-    private boolean viaRedis;
     private String redisKey;
 
     public NetworkResponse() {
     }
 
-    public NetworkResponse(T returnValue, boolean viaRedis) {
-        this(returnValue, viaRedis, "");
+    public NetworkResponse(T returnValue) {
+        this(returnValue, "");
     }
 
-    public NetworkResponse(T returnValue, boolean viaRedis, String redisKey) {
+    public NetworkResponse(T returnValue, String redisKey) {
         this.value = returnValue;
-        this.viaRedis = viaRedis;
         this.redisKey = redisKey;
     }
 
@@ -26,16 +26,9 @@ public class NetworkResponse<T> {
         this.value = returnValue;
     }
 
-    public boolean isViaRedis() {
-        return viaRedis;
-    }
-
-    public void setViaRedis(boolean viaRedis) {
-        this.viaRedis = viaRedis;
-    }
 
     public RateLimitedProcessor.Action getRlpHint() {
-        return viaRedis ? RateLimitedProcessor.Action.SKIP_DELAY : RateLimitedProcessor.Action.WAIT_AND_CONTINUE;
+        return StringUtils.isBlank(redisKey) ? RateLimitedProcessor.Action.WAIT_AND_CONTINUE : RateLimitedProcessor.Action.SKIP_DELAY;
     }
 
     public String getRedisKey() {
