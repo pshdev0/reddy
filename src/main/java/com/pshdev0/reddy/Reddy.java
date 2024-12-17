@@ -174,10 +174,6 @@ public class Reddy {
         CompletableFuture.runAsync(() -> {}, CompletableFuture.delayedExecutor(milliseconds, TimeUnit.MILLISECONDS)).join();
     }
 
-//    public static <T> TypeReference<T> createTypeRef() {
-//        return new TypeReference<>() {};
-//    }
-
     public static <T> TypeReference<T> createTypeRef(Class<T> clazz) {
         return new TypeReference<>() {
             @Override
