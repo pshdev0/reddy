@@ -4,4 +4,3 @@
 
 # TODO
 * Add CompletableFuture<> functionality
-* 
