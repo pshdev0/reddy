@@ -59,9 +59,7 @@ public class Reddy {
 
         if (redis.exists(key)) {
             try {
-                System.out.println(typeReference.getType());
-                var value = objectMapper.readValue(redis.get(key), typeReference);
-                return value;
+                return objectMapper.readValue(redis.get(key), typeReference);
             } catch (JsonProcessingException e) {
                 System.out.println("Redis read failed, computing instead");
             }
@@ -174,7 +172,7 @@ public class Reddy {
         CompletableFuture.runAsync(() -> {}, CompletableFuture.delayedExecutor(milliseconds, TimeUnit.MILLISECONDS)).join();
     }
 
-    public static <T> TypeReference<T> createTypeRef(Class<T> clazz) {
+    public static <T> TypeReference<T> createJacksonTypeRef(Class<T> clazz) {
         return new TypeReference<>() {
             @Override
             public java.lang.reflect.Type getType() {
