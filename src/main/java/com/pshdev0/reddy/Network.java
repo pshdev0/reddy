@@ -18,13 +18,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-public class Reddy {
+public class Network {
     private static Jedis jedis;
     private static String redisKeyPrefix;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static long defaultMillis = 75;
 
-    private Reddy() { }
+    private Network() { }
 
     public static void setRedisKeyPrefix(String prefix) {
         redisKeyPrefix = prefix;
@@ -59,7 +59,9 @@ public class Reddy {
 
         if (redis.exists(key)) {
             try {
-                return objectMapper.readValue(redis.get(key), typeReference);
+                var value = objectMapper.readValue(redis.get(key), typeReference);
+                System.out.println("redis value: " + value);
+                return value;
             } catch (JsonProcessingException e) {
                 System.out.println("Redis read failed, computing instead");
             }
@@ -94,36 +96,62 @@ public class Reddy {
         return hexString.toString();
     }
 
+    public static String post(String url, String requestBody) {
+        List<String> curlCommand = List.of(
+                "curl", "-X", "POST", url,
+                "-H", "Content-Type: application/json",
+                "-d", requestBody
+        );
+
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
+            Process process = processBuilder.start();
+
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String inputLine;
+                StringBuilder response = new StringBuilder();
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+                return response.toString();
+            }
+        } catch (IOException e) {
+            System.out.println("post error");
+        }
+
+        return null;
+    }
+
     public static String getCachedOrPostAndWait(String url, String requestBody) {
         return getCachedOrPostAndWait(url, requestBody, defaultMillis);
     }
 
     public static String getCachedOrPostAndWait(String url, String requestBody, long millisToWaitBeforePost) {
-        return getCachedOrComputeAndWait(() -> {
-            List<String> curlCommand = List.of(
-                    "curl", "-X", "POST", url,
-                    "-H", "Content-Type: application/json",
-                    "-d", requestBody
-            );
+        return getCachedOrComputeAndWait(() -> post(url, requestBody), new TypeReference<>() {}, millisToWaitBeforePost, "POST", url, requestBody);
+    }
 
-            try {
-                ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
-                Process process = processBuilder.start();
+    public static String get(String url) {
+        List<String> curlCommand = List.of("curl", "-X", "GET", url, "-H", "Content-Type: application/json");
 
-                try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String inputLine;
-                    StringBuilder response = new StringBuilder();
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
-                    }
-                    return response.toString();
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
+            Process process = processBuilder.start();
+
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String inputLine;
+                StringBuilder response = new StringBuilder();
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
                 }
-            } catch (IOException e) {
-                System.out.println("post error");
+
+                return response.toString();
             }
 
-            return null;
-        }, new TypeReference<>() {}, millisToWaitBeforePost, "POST", url, requestBody);
+        } catch (IOException e) {
+            System.out.println("get call error");
+        }
+
+        return null;
     }
 
     public static String getCachedOrGetAndWait(String url) {
@@ -131,29 +159,7 @@ public class Reddy {
     }
 
     public static String getCachedOrGetAndWait(String url, long millisToWaitBeforeGet) {
-        return getCachedOrComputeAndWait(() -> {
-            List<String> curlCommand = List.of("curl", "-X", "GET", url, "-H", "Content-Type: application/json");
-
-            try {
-                ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
-                Process process = processBuilder.start();
-
-                try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                    String inputLine;
-                    StringBuilder response = new StringBuilder();
-                    while ((inputLine = in.readLine()) != null) {
-                        response.append(inputLine);
-                    }
-
-                    return response.toString();
-                }
-
-            } catch (IOException e) {
-                System.out.println("get call error");
-            }
-
-            return null;
-        }, new TypeReference<>() {}, millisToWaitBeforeGet, "GET", url);
+        return getCachedOrComputeAndWait(() -> Network.get(url), new TypeReference<>() {}, millisToWaitBeforeGet, "GET", url);
     }
 
     public static ObjectMapper getObjectMapper() {
@@ -161,7 +167,7 @@ public class Reddy {
     }
 
     public static void setDefaultMillis(long defaultMillis) {
-        Reddy.defaultMillis = defaultMillis;
+        Network.defaultMillis = defaultMillis;
     }
 
     public static long getDefaultMillis() {
