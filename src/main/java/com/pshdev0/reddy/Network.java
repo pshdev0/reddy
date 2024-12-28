@@ -23,6 +23,7 @@ public class Network {
     private static String redisKeyPrefix;
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static long defaultMillis = 75;
+    private static boolean debugInfo;
 
     private Network() { }
 
@@ -37,33 +38,41 @@ public class Network {
         return jedis;
     }
 
-    public static String createRedisKey(String method, String ... stringsToJoinAndHash) {
+    public static String createRedisKey(String source, String method, int version, String ... stringsToJoinAndHash) {
         var id = String.join(":", stringsToJoinAndHash);
-        return redisKeyPrefix + ":" + method + ":" + getKeccak256Hash(id);
+        return redisKeyPrefix + ":" + source + ":" + method + ":" + version + ":" + getKeccak256Hash(id);
     }
 
     public static <T> T getCachedOrComputeAndWait(Supplier<T> func,
                                                   TypeReference<T> typeReference,
+                                                  String redisSourceName,
                                                   String redisMethodName,
+                                                  int redisVersion,
                                                   String ... stringsToMakeRedisHash) {
-        return getCachedOrComputeAndWait(func, typeReference, defaultMillis, redisMethodName, stringsToMakeRedisHash);
+        return getCachedOrComputeAndWait(func, typeReference, defaultMillis, redisSourceName, redisMethodName, redisVersion, stringsToMakeRedisHash);
     }
 
     public static <T> T getCachedOrComputeAndWait(Supplier<T> func,
                                                   TypeReference<T> typeReference,
                                                   long millisToWaitBeforeCompute,
+                                                  String redisSourceName,
                                                   String redisMethodName,
+                                                  int redisVersion,
                                                   String ... stringsToMakeRedisHash) {
-        var key = createRedisKey(redisMethodName, stringsToMakeRedisHash);
+        var key = createRedisKey(redisSourceName, redisMethodName, redisVersion, stringsToMakeRedisHash);
         var redis = getRedis();
 
         if (redis.exists(key)) {
             try {
-                var value = objectMapper.readValue(redis.get(key), typeReference);
-                System.out.println("redis value: " + value);
-                return value;
+                var returnValue = objectMapper.readValue(redis.get(key), typeReference);
+                if (debugInfo) {
+                    System.out.println("redis key: " + key + " value: " + returnValue);
+                }
+                return returnValue;
             } catch (JsonProcessingException e) {
                 System.out.println("Redis read failed, computing instead");
+            } catch (Exception ignored) {
+                System.out.println("failed to read redis value, computing...");
             }
         }
 
@@ -122,12 +131,12 @@ public class Network {
         return null;
     }
 
-    public static String getCachedOrPostAndWait(String url, String requestBody) {
-        return getCachedOrPostAndWait(url, requestBody, defaultMillis);
+    public static String getCachedOrPostAndWait(String sourceId, String url, String requestBody) {
+        return getCachedOrPostAndWait(sourceId, url, requestBody, defaultMillis);
     }
 
-    public static String getCachedOrPostAndWait(String url, String requestBody, long millisToWaitBeforePost) {
-        return getCachedOrComputeAndWait(() -> post(url, requestBody), new TypeReference<>() {}, millisToWaitBeforePost, "POST", url, requestBody);
+    public static String getCachedOrPostAndWait(String sourceId, String url, String requestBody, long millisToWaitBeforePost) {
+        return getCachedOrComputeAndWait(() -> post(url, requestBody), new TypeReference<>() {}, millisToWaitBeforePost, sourceId, "POST", 0, url, requestBody);
     }
 
     public static String get(String url) {
@@ -154,12 +163,12 @@ public class Network {
         return null;
     }
 
-    public static String getCachedOrGetAndWait(String url) {
-        return getCachedOrGetAndWait(url, defaultMillis);
+    public static String getCachedOrGetAndWait(String sourceId, String url) {
+        return getCachedOrGetAndWait(sourceId, url, defaultMillis);
     }
 
-    public static String getCachedOrGetAndWait(String url, long millisToWaitBeforeGet) {
-        return getCachedOrComputeAndWait(() -> Network.get(url), new TypeReference<>() {}, millisToWaitBeforeGet, "GET", url);
+    public static String getCachedOrGetAndWait(String sourceId, String url, long millisToWaitBeforeGet) {
+        return getCachedOrComputeAndWait(() -> Network.get(url), new TypeReference<>() {}, millisToWaitBeforeGet, sourceId, "GET", 0, url);
     }
 
     public static ObjectMapper getObjectMapper() {
@@ -185,5 +194,9 @@ public class Network {
                 return clazz;
             }
         };
+    }
+
+    public static void showDebugInfo(boolean state) {
+        debugInfo = state;
     }
 }
