@@ -16,14 +16,13 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 public class Network {
     private static Jedis jedis;
     private static String redisKeyPrefix;
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private static long defaultMillis = 75;
+    private static long defaultMillis = 26;
     private static boolean debugInfo;
 
     private Network() { }
@@ -83,7 +82,7 @@ public class Network {
         debugInfo = state;
     }
 
-    public static <T> T getCachedOrComputeAndWait(Supplier<T> func,
+    public static <T> T getCachedOrComputeAndWait(ThrowingSupplier<T> func,
                                                   Class<T> typeReference,
                                                   String redisSourceName,
                                                   String redisMethodName,
@@ -92,7 +91,7 @@ public class Network {
         return getCachedOrComputeAndWait(func, typeReference, defaultMillis, redisSourceName, redisMethodName, redisVersion, stringsToMakeRedisHash);
     }
 
-    public static <T> T getCachedOrComputeAndWait(Supplier<T> func,
+    public static <T> T getCachedOrComputeAndWait(ThrowingSupplier<T> func,
                                                   Class<T> clazz,
                                                   long millisToWaitBeforeCompute,
                                                   String redisSourceName,
@@ -126,50 +125,69 @@ public class Network {
 
         // at this point any previous key, if any, will no longer exist
 
-        blockingWait(millisToWaitBeforeCompute);
-        var value = func.get();
+        final int maxTries = 5;
 
-        if (value == null) {
-            System.out.println("was going to use redis key " + key + ", but returned value was null");
-            System.out.println("hashes:" + Arrays.stream(stringsToMakeRedisHash).map(x -> x.replaceAll("\\s+", "")).collect(Collectors.joining()).toLowerCase());
-        }
-        else {
+        for (int tries = 0; tries < maxTries; tries++) {
+            blockingWait((1 + tries * 10) * millisToWaitBeforeCompute);
+
             try {
-                var valueString = objectMapper.writeValueAsString(value); // convert object to string to store in redis as json string
-                redis.set(key, valueString); // store the key
-            } catch (JsonProcessingException e) {
-                System.out.println("Could not set Redis key/value, but returning non-null value anyway");
-                redis.del(key); // just to be safe, delete the key (although it should never be created)
+                var value = func.get();
+
+                if (value == null) {
+                    if (debugInfo) {
+                        System.out.println("was going to use redis key " + key + ", but returned value was null");
+                        System.out.println("hashes:" + Arrays.stream(stringsToMakeRedisHash).map(x -> x.replaceAll("\\s+", "")).collect(Collectors.joining()).toLowerCase());
+                        System.out.println("body pretty-print:");
+                        System.out.println(Arrays.toString(stringsToMakeRedisHash));
+                    }
+                    else {
+                        System.out.println("value was null, did not store in redis");
+                    }
+                } else {
+                    try {
+                        var valueString = objectMapper.writeValueAsString(value); // convert object to string to store in redis as json string
+                        redis.set(key, valueString); // store the key
+                    } catch (JsonProcessingException e) {
+                        System.out.println("Could not set Redis key/value, but returning non-null value anyway");
+                        redis.del(key); // just to be safe, delete the key (although it should never be created)
+                    }
+                }
+
+                return value;
+            } catch (IOException e) {
+                if(tries < maxTries - 1) {
+                    System.out.println("IOException (possible timeout), retrying in a moment");
+                }
+                else {
+                    System.out.println("Max tries attempted, failing");
+                }
+            } catch (Exception e) {
+                // fatal error
+                throw new RuntimeException(e);
             }
         }
 
-        return value;
+        return null;
     }
 
-    public static <T> T post(String url, String requestBody, Class<T> returnClass) {
+    public static <T> T post(String url, String requestBody, Class<T> returnClass) throws IOException {
         List<String> curlCommand = List.of(
                 "curl", "-X", "POST", url,
                 "-H", "Content-Type: application/json",
                 "-d", requestBody
         );
 
-        try {
-            ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
-            Process process = processBuilder.start();
+        ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
+        Process process = processBuilder.start();
 
-            try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String inputLine;
-                StringBuilder response = new StringBuilder();
-                while ((inputLine = in.readLine()) != null) {
-                    response.append(inputLine);
-                }
-                return objectMapper.readValue(response.toString(), returnClass);
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
             }
-        } catch (IOException e) {
-            System.out.println("post error");
+            return objectMapper.readValue(response.toString(), returnClass);
         }
-
-        return null;
     }
 
     public static <T> T getCachedOrPostAndWait(String sourceId, String url, String requestBody, Class<T> returnClass) {
@@ -180,27 +198,21 @@ public class Network {
         return getCachedOrComputeAndWait(() -> post(url, requestBody, returnClass), returnClass, millisToWaitBeforePost, sourceId, "POST", 0, url, requestBody);
     }
 
-    public static <T> T get(String url, Class<T> returnClass) {
+    public static <T> T get(String url, Class<T> returnClass) throws IOException {
         List<String> curlCommand = List.of("curl", "-X", "GET", url, "-H", "Content-Type: application/json");
 
-        try {
-            ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
-            Process process = processBuilder.start();
+        ProcessBuilder processBuilder = new ProcessBuilder(curlCommand);
+        Process process = processBuilder.start();
 
-            try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-                String inputLine;
-                StringBuilder response = new StringBuilder();
-                while ((inputLine = in.readLine()) != null) {
-                    response.append(inputLine);
-                }
-
-                return objectMapper.readValue(response.toString(), returnClass);
+        try (BufferedReader in = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String inputLine;
+            StringBuilder response = new StringBuilder();
+            while ((inputLine = in.readLine()) != null) {
+                response.append(inputLine);
             }
-        } catch (IOException e) {
-            System.out.println("get call error");
-        }
 
-        return null;
+            return objectMapper.readValue(response.toString(), returnClass);
+        }
     }
 
     public static <T> T getCachedOrGetAndWait(String sourceId, String url, Class<T> returnClass) {
