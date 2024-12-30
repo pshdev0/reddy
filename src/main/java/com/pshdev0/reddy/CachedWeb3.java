@@ -159,12 +159,6 @@ public class CachedWeb3 {
                 BigInteger.class, rpcId, "ethGetBalance", CACHE_VERSION, walletAddress, String.valueOf(block));
     }
 
-    /*
-
-        originally from EthereumHelper class
-
-     */
-
     public static boolean ready(String id) {
         return webMap.containsKey(id);
     }
