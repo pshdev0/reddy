@@ -1,6 +1,7 @@
 package com.pshdev0.reddy;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.bouncycastle.jcajce.provider.digest.Keccak;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
@@ -21,9 +22,20 @@ import java.util.stream.Collectors;
 public class Network {
     private static Jedis jedis;
     private static String redisKeyPrefix;
-    private static final ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper;
     private static long defaultMillis = 26;
     private static boolean debugInfo;
+
+    static {
+        /*
+         * we ignore unknown properties because jackson databind by default serialises on getField reflection, not
+         * just fields present, and e.g. EthBlock.Block has getField() and getFieldRaw() but only field as a member, so
+         * when jackson serialises EthBlock.Block it will include fieldRaw versions of field fields, but when you come
+         * to deserialise the json string back into EthBlock.Block you'll get an unknown property exception because
+         * the fieldRaw fields don't exist!
+        */
+        objectMapper = new ObjectMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
 
     private Network() { }
 
@@ -149,6 +161,7 @@ public class Network {
                         redis.set(key, valueString); // store the key
                     } catch (JsonProcessingException e) {
                         System.out.println("Could not set Redis key/value, but returning non-null value anyway");
+                        e.printStackTrace();
                         redis.del(key); // just to be safe, delete the key (although it should never be created)
                     }
                 }
@@ -159,14 +172,17 @@ public class Network {
                     System.out.println("IOException (possible timeout), retrying in a moment");
                 }
                 else {
-                    System.out.println("Max tries attempted, failing");
+                    System.out.println("All max tries attempted, failing");
                 }
             } catch (Exception e) {
                 // fatal error
                 throw new RuntimeException(e);
             }
+
+            System.out.println("retrying " + (tries + 1) + " of " + maxTries);
         }
 
+        System.out.println("--- getCachedOrComputeAndWait - all retries failed, returning null to calling method ---");
         return null;
     }
 

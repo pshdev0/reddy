@@ -12,6 +12,10 @@ public class ListOfStrings {
         this.strings = strings;
     }
 
+    ListOfStrings(String ... strings) {
+        this.strings = List.of(strings);
+    }
+
     public List<String> getStrings() { return strings; }
     public void setStrings(List<String> strings) { this.strings = strings; }
 }
